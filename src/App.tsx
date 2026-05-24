@@ -395,7 +395,7 @@ export default function App() {
             onToggleCallMode={() => setIsCallModeOpen(true)}
           />
         ) : (
-          <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0d1b2a]">
+          <div className="flex-1 overflow-y-auto bg-white dark:bg-[#0d1b2a] text-slate-900 dark:text-slate-100">
             <SettingsContent 
               activeId={activeSettingId} 
               memory={memory} 

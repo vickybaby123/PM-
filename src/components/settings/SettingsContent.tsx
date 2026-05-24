@@ -7,6 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import { DebugLogPanel } from '../DebugLogPanel';
 import * as mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
+import * as XLSX from 'xlsx';
 
 // Configure PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
@@ -276,7 +277,7 @@ function PersonaView({ persona, onUpdate }: { persona: Persona, onUpdate: (p: Pe
             )}
           </div>
 
-          <div className="p-8 prose dark:prose-invert prose-sm max-w-none">
+          <div className="p-8 prose dark:prose-invert prose-sm max-w-none text-slate-800 dark:text-slate-100 markdown-body">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 border-l-2 border-blue-500 pl-3">
               {activeTab === 'work' ? 'WHAT · 定义智能体的职责边界和工作范围' : 'HOW · 定义智能体的沟通习惯和行为边界'}
             </div>
@@ -494,11 +495,65 @@ function KnowledgeBaseView({ items, onUpdate }: { items: KnowledgeBaseItem[], on
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = (e) => {
-          resolve({
-            content: e.target?.result as string || '',
-            type: 'table'
-          });
+          try {
+            const rawContent = e.target?.result as string || '';
+            const delimiter = ext === 'tsv' ? '\t' : ',';
+            const lines = rawContent.split(/\r?\n/).filter(line => line.trim().length > 0);
+            if (lines.length === 0) {
+              resolve({ content: 'CSV 文件为空', type: 'table' });
+              return;
+            }
+            
+            let markdown = '';
+            const parsedRows: string[][] = lines.map(line => {
+              const cols: string[] = [];
+              let current = '';
+              let inQuotes = false;
+              for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                  inQuotes = !inQuotes;
+                } else if (char === delimiter && !inQuotes) {
+                  cols.push(current.trim());
+                  current = '';
+                } else {
+                  current += char;
+                }
+              }
+              cols.push(current.trim());
+              return cols;
+            });
+
+            const maxCols = Math.max(...parsedRows.map(r => r.length));
+            if (maxCols === 0) {
+              resolve({ content: '没有检测到任何数据列', type: 'table' });
+              return;
+            }
+
+            const header = parsedRows[0];
+            const headerCells = Array.from({ length: maxCols }, (_, colIdx) => header[colIdx] || '');
+            markdown += `### CSV 数据预览\n\n`;
+            markdown += `| ${headerCells.join(' | ')} |\n`;
+            markdown += `| ${Array(maxCols).fill('---').join(' | ')} |\n`;
+
+            for (let rIdx = 1; rIdx < parsedRows.length; rIdx++) {
+              const row = parsedRows[rIdx];
+              const cells = Array.from({ length: maxCols }, (_, colIdx) => (row[colIdx] || '').replace(/\n/g, '<br>'));
+              markdown += `| ${cells.join(' | ')} |\n`;
+            }
+
+            resolve({
+              content: markdown,
+              type: 'table'
+            });
+          } catch (err) {
+            resolve({
+              content: `CSV/TSV 解析失败: ${err instanceof Error ? err.message : String(err)}`,
+              type: 'table'
+            });
+          }
         };
+        // Use UTF-8 / GBK compatible fallback mechanism for Chinese encodings
         reader.readAsText(file);
       });
     }
@@ -556,10 +611,53 @@ function KnowledgeBaseView({ items, onUpdate }: { items: KnowledgeBaseItem[], on
       return new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = (e) => {
-          resolve({
-            content: `工作簿：${file.name}\n大小：${(file.size / 1024).toFixed(1)} KB\n格式：Excel 电子表格 (.${ext})\n\n[自动检测的属性]\n数据表类型：IPD 评审/数据清单表\n最后更新时间：${new Date().toLocaleString()}\n\n数据结构提取完成，将作为高级检索表格注入 RAG 上下文。`,
-            type: 'table'
-          });
+          try {
+            const data = new Uint8Array(e.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            
+            let fullMarkdown = '';
+            workbook.SheetNames.forEach((sheetName) => {
+              const sheet = workbook.Sheets[sheetName];
+              const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+              if (!rawRows || rawRows.length === 0) return;
+              
+              const rows = rawRows.filter(row => row && row.length > 0 && row.some(cell => cell !== null && cell !== undefined && cell !== ''));
+              if (rows.length === 0) return;
+              
+              fullMarkdown += `### 工作表：${sheetName}\n\n`;
+              
+              const maxCols = Math.max(...rows.map(r => r.length));
+              const header = rows[0];
+              const headerCells = Array.from({ length: maxCols }, (_, colIdx) => {
+                const val = header[colIdx];
+                return val !== undefined && val !== null ? String(val).trim() : '';
+              });
+              
+              fullMarkdown += `| ${headerCells.map(h => h || `列 ${headerCells.indexOf(h) + 1}`).join(' | ')} |\n`;
+              fullMarkdown += `| ${Array(maxCols).fill('---').join(' | ')} |\n`;
+              
+              for (let rIdx = 1; rIdx < rows.length; rIdx++) {
+                const row = rows[rIdx];
+                const cells = Array.from({ length: maxCols }, (_, colIdx) => {
+                  const val = row[colIdx];
+                  if (val === undefined || val === null) return '';
+                  return String(val).trim().replace(/\n/g, '<br>').replace(/\|/g, '\\|');
+                });
+                fullMarkdown += `| ${cells.join(' | ')} |\n`;
+              }
+              fullMarkdown += `\n\n`;
+            });
+            
+            resolve({
+              content: fullMarkdown.trim() || 'Excel文件内无有效行列数据。',
+              type: 'table'
+            });
+          } catch (err) {
+            resolve({
+              content: `Excel分析错误: ${err instanceof Error ? err.message : String(err)}`,
+              type: 'table'
+            });
+          }
         };
         reader.readAsArrayBuffer(file);
       });
@@ -896,7 +994,7 @@ function MemoryMdView({ memoryMd, onUpdate }: { memoryMd: string, onUpdate: (m: 
               className="w-full h-[600px] bg-slate-50 dark:bg-[#0d1b2a] border border-slate-200 dark:border-white/10 rounded-2xl p-6 text-sm font-mono focus:ring-2 focus:ring-blue-500/20 outline-none transition-all resize-none"
             />
           ) : (
-            <div className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-8 prose prose-slate dark:prose-invert max-w-none shadow-sm">
+            <div className="bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-8 prose prose-slate dark:prose-invert max-w-none shadow-sm text-slate-800 dark:text-slate-100 markdown-body">
               <ReactMarkdown>{memoryMd}</ReactMarkdown>
             </div>
           )}
