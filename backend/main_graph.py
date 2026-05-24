@@ -175,7 +175,7 @@ def route_decision(state: AgentState):
 # 初始化图
 workflow = StateGraph(AgentState)
 
-# 添加节点
+# RAG 检索子代理定义
 async def retrieval_agent(state: AgentState, config: RunnableConfig):
     """
     RAG 检索子代理：专门负责从知识库提取信息
@@ -203,13 +203,19 @@ async def retrieval_agent(state: AgentState, config: RunnableConfig):
         "next_agent": "summarizer"
     }
 
+# 第一步：先添加所有节点
+workflow.add_node("main_router", main_router)
+workflow.add_node("feishu_agent", feishu_agent)
+workflow.add_node("plm_agent", plm_agent)
+workflow.add_node("schedule_agent", schedule_agent)
+workflow.add_node("summarizer", summarizer)
+workflow.add_node("reflection", reflection_node)
 workflow.add_node("retrieval_agent", retrieval_agent)
-workflow.add_edge("retrieval_agent", "summarizer")
 
-# 设置入口
+# 第二步：设置入口
 workflow.set_entry_point("main_router")
 
-# 添加边：带条件的路由
+# 第三步：再添加所有边
 workflow.add_conditional_edges(
     "main_router",
     route_decision,
@@ -220,18 +226,16 @@ workflow.add_conditional_edges(
         "END": END
     }
 )
+workflow.add_edge("feishu_agent", "summarizer")
+workflow.add_edge("plm_agent", "summarizer")
+workflow.add_edge("schedule_agent", "summarizer")
+workflow.add_edge("retrieval_agent", "summarizer")
 
 def route_summarizer(state: AgentState):
     if state.get("next_agent") == "reflection":
         return "reflection"
     return END
 
-# 所有子代理完成任务后进入 Summarizer
-workflow.add_edge("feishu_agent", "summarizer")
-workflow.add_edge("plm_agent", "summarizer")
-workflow.add_edge("schedule_agent", "summarizer")
-
-# Summarizer 结束后判断是结束还是进行 Reflection
 workflow.add_conditional_edges(
     "summarizer",
     route_summarizer,
@@ -240,8 +244,6 @@ workflow.add_conditional_edges(
         "END": END
     }
 )
-
-# Reflection 结束后彻底完成本轮
 workflow.add_edge("reflection", END)
 
 # 持久化存储
