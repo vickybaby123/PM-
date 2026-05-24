@@ -1,0 +1,6 @@
+{
+  "name": "PM-CoPilot 1.0",
+  "description": "Expert AI project manager assistant for the home appliance industry, specializing in IPD processes and home appliance certifications.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": []
+}
