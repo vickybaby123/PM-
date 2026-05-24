@@ -17,17 +17,12 @@ except ImportError:
 
 # 初始化模型
 # 使用 Gemini 1.5 Flash 以获得最快的响应速度
-llm = None  # 延迟初始化
-
 def get_llm():
-    global llm
-    if llm is None:
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key=os.getenv("GEMINI_API_KEY"),
-            temperature=0.2
-        )
-    return llm
+    return ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash",
+        google_api_key=os.getenv("GEMINI_API_KEY"),
+        temperature=0.2
+    )
 
 # 初始化上下文管理器
 ctx_manager = ContextManager(token_limit=4000)
@@ -66,7 +61,7 @@ async def main_router(state: AgentState, config: RunnableConfig):
     仅返回子代理名称或 'ask_clarification'。
     """
     
-    response = await llm.ainvoke(prompt, config=config)
+    response = await get_llm().ainvoke(prompt, config=config)
     decision = response.content.strip().lower()
 
     # Log transition
@@ -86,7 +81,7 @@ async def feishu_agent(state: AgentState, config: RunnableConfig):
     session_id = config.get("configurable", {}).get("thread_id", "default")
     
     prompt = f"作为 FeishuAgent，处理以下任务摘要并给出专业回复：{state['context_summary']}"
-    response = await llm.ainvoke(prompt, config=config)
+    response = await get_llm().ainvoke(prompt, config=config)
     
     trace_logger.log(ExecutionLog(
         session_id=session_id,
@@ -111,7 +106,7 @@ async def plm_agent(state: AgentState, config: RunnableConfig):
     bom_data = await ctx_manager.fetch_bom_with_cache("HA-9001", mock_plm_fetcher)
     
     prompt = f"作为 PLMAgent，根据 BOM 数据 {bom_data} 分析以下工程需求：{state['context_summary']}"
-    response = await llm.ainvoke(prompt, config=config)
+    response = await get_llm().ainvoke(prompt, config=config)
     
     return {
         "messages": [{"role": "assistant", "content": f"[PLM] {response.content}"}],
@@ -123,7 +118,7 @@ async def schedule_agent(state: AgentState, config: RunnableConfig):
     进度子代理：处理 IPD 计划
     """
     prompt = f"作为 ScheduleAgent，分析项目进度风险：{state['context_summary']}"
-    response = await llm.ainvoke(prompt, config=config)
+    response = await get_llm().ainvoke(prompt, config=config)
     
     return {
         "messages": [{"role": "assistant", "content": f"[Schedule] {response.content}"}],
@@ -146,7 +141,7 @@ async def summarizer(state: AgentState, config: RunnableConfig):
         summary_prompt = f"请总结以下对话的关键信息，由于上下文过长，该摘要将作为后续工作的唯一引用：\n" + \
                          "\n".join([f"{m['role']}: {m['content']}" for m in messages])
         
-        summary_res = await llm.ainvoke(summary_prompt, config=config)
+        summary_res = await get_llm().ainvoke(summary_prompt, config=config)
         
         new_messages = messages[:1] + messages[-2:] 
         return {
@@ -161,7 +156,7 @@ async def reflection_node(state: AgentState, config: RunnableConfig):
     """
     Reflection 代理：提炼进度快照
     """
-    result = await ctx_manager.run_reflection(state, llm)
+    result = await ctx_manager.run_reflection(state, get_llm())
     return {**result, "next_agent": END}
 
 # --- 图构建与路由逻辑 ---
