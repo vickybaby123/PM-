@@ -1,9 +1,0 @@
-fastapi==0.100.1
-uvicorn==0.23.2
-mangum==0.17.0
-pydantic==1.10.13
-langgraph
-langchain
-langchain-google-genai
-google-generativeai
-python-dotenv

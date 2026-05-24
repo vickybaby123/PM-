@@ -18,6 +18,8 @@ class AgentState(TypedDict):
 # 2. 定义 SubAgentResponse (Pydantic Model)
 # 用于 API 返回和子代理输出验证，确保结构化输出的严谨性
 class SubAgentMetadata(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    
     execution_time_ms: float = Field(..., description="任务耗时")
     token_usage: Dict[str, int] = Field(default_factory=lambda: {"prompt": 0, "completion": 0}, description="Token 消耗统计")
 
@@ -25,6 +27,8 @@ class SubAgentResponse(BaseModel):
     """
     子代理标准响应格式
     """
+    model_config = {"arbitrary_types_allowed": True}
+    
     content: str = Field(..., description="代理回复的文本内容")
     need_escalation: bool = Field(False, description="是否需要主代理或人工干预")
     proposed_next: Optional[str] = Field(None, description="建议的下一个处理节点")
