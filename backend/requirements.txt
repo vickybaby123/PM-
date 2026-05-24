@@ -1,6 +1,6 @@
-langgraph
-langchain-google-genai
-fastapi
-pydantic
-uvicorn
-python-dotenv
+fastapi==0.110.0
+pydantic==2.6.4
+uvicorn==0.28.0
+python-dotenv==1.0.1
+langchain-google-genai==1.0.1
+langgraph==0.0.26
