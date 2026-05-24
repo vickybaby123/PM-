@@ -8,8 +8,12 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
 
-from .agent_protocol import AgentState, SubAgentResponse, SubAgentMetadata
-from .context_manager import ContextManager
+try:
+    from .agent_protocol import AgentState, SubAgentResponse, SubAgentMetadata
+    from .context_manager import ContextManager
+except ImportError:
+    from agent_protocol import AgentState, SubAgentResponse, SubAgentMetadata
+    from context_manager import ContextManager
 
 # 初始化模型
 # 使用 Gemini 1.5 Flash 以获得最快的响应速度
@@ -24,7 +28,10 @@ ctx_manager = ContextManager(token_limit=4000)
 
 # --- Nodes 定义 ---
 
-from .logger import trace_logger, ExecutionLog
+try:
+    from .logger import trace_logger, ExecutionLog
+except ImportError:
+    from logger import trace_logger, ExecutionLog
 import time
 
 # ... existing code ...

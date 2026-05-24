@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 class ExecutionLog(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
     session_id: str
     agent_name: str
@@ -18,7 +20,7 @@ class ExecutionLog(BaseModel):
     details: Dict[str, Any] = Field(default_factory=dict)
 
 class TraceLogger:
-    def __init__(self, db_path: str = "logs.db"):
+    def __init__(self, db_path: str = "/tmp/logs.db"):
         self.db_path = db_path
         self._init_db()
 

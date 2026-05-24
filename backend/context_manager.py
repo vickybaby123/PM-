@@ -1,7 +1,10 @@
 import time
 import json
 from typing import List, Dict, Any, Optional
-from .agent_protocol import AgentState
+try:
+    from .agent_protocol import AgentState
+except ImportError:
+    from agent_protocol import AgentState
 
 class ContextManager:
     """
