@@ -17,11 +17,17 @@ except ImportError:
 
 # 初始化模型
 # 使用 Gemini 1.5 Flash 以获得最快的响应速度
-llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",
-    google_api_key=os.getenv("GEMINI_API_KEY"),
-    temperature=0.2
-)
+llm = None  # 延迟初始化
+
+def get_llm():
+    global llm
+    if llm is None:
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            google_api_key=os.getenv("GEMINI_API_KEY"),
+            temperature=0.2
+        )
+    return llm
 
 # 初始化上下文管理器
 ctx_manager = ContextManager(token_limit=4000)
