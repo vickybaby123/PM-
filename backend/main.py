@@ -1,6 +1,6 @@
 import os
 import sys
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
@@ -16,11 +16,17 @@ if parent_dir not in sys.path:
 try:
     from .main_graph import app_graph
     from .agent_protocol import AgentState
-    from .logger import trace_logger
+    from .logger import trace_logger, ws_manager
+    from .memory_reflector import verify_memory_integrity, trigger_async_memory_reflection
 except ImportError:
     from main_graph import app_graph
     from agent_protocol import AgentState
-    from logger import trace_logger
+    from logger import trace_logger, ws_manager
+    from memory_reflector import verify_memory_integrity, trigger_async_memory_reflection
+
+# Startup Integrity Verification Checklist for MEMORY.md
+print("\033[1;36m[System Boot] Auto-running long-term memory system audit (MEMORY.md)...\033[0m")
+verify_memory_integrity()
 
 app = FastAPI(
     title="PM-CoPilot Backend",
@@ -63,11 +69,14 @@ def read_root():
     }
 
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
     """
     Primary endpoint to invoke the LangGraph PM-CoPilot agentic flow.
     Fulfills state transformations and passes checkpointer logic.
     """
+    # Reset step counter before executing the graph request to avoid intermingled counters
+    trace_logger.reset_step_counter(request.thread_id)
+
     # 1. Adapt Pydantic models to typed AgentState dictionary
     state: AgentState = {
         "messages": [msg.model_dump() for msg in request.messages],
@@ -91,6 +100,9 @@ async def chat_endpoint(request: ChatRequest):
         # 4. Fetch the session trace logs generated during the run
         logs = trace_logger.get_session_logs(request.thread_id)
         
+        # 5. Background asynchronous memory reflection analysis triggered
+        background_tasks.add_task(trigger_async_memory_reflection, state["messages"])
+
         return {
             "status": "success",
             "state": response_state,
@@ -101,6 +113,22 @@ async def chat_endpoint(request: ChatRequest):
             status_code=500,
             detail=f"Error executing LangGraph workflow: {str(e)}"
         )
+
+@app.websocket("/ws/logs/{session_id}")
+async def websocket_logs_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for real-time log execution stream.
+    Concurrently broadcasts Deep-Thinking log steps.
+    """
+    await ws_manager.connect(websocket, session_id)
+    try:
+        while True:
+            # Maintain connection alive, ignore client actions
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, session_id)
+    except Exception:
+        ws_manager.disconnect(websocket, session_id)
 
 @app.get("/logs/{thread_id}")
 def get_logs(thread_id: str):

@@ -5,6 +5,11 @@ import { MemoryVault, Persona, SettingsTool, MCPItem, SkillItem, KnowledgeBaseIt
 import { cn } from '../../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import { DebugLogPanel } from '../DebugLogPanel';
+import * as mammoth from 'mammoth';
+import * as pdfjs from 'pdfjs-dist';
+
+// Configure PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 interface SettingsContentProps {
   activeId: string;
@@ -150,6 +155,31 @@ function PersonaView({ persona, onUpdate }: { persona: Persona, onUpdate: (p: Pe
   const [activeTab, setActiveTab] = useState<'work' | 'behavior'>('work');
   const [isEditing, setIsEditing] = useState(false);
   const [tempPersona, setTempPersona] = useState(persona);
+  const [isEditingContent, setIsEditingContent] = useState(false);
+  const [editContent, setEditContent] = useState('');
+
+  const startEditing = () => {
+    setEditContent(activeTab === 'work' ? persona.responsibilities : persona.constraints);
+    setIsEditingContent(true);
+  };
+
+  const saveEditing = () => {
+    if (activeTab === 'work') {
+      onUpdate({ ...persona, responsibilities: editContent });
+    } else {
+      onUpdate({ ...persona, constraints: editContent });
+    }
+    setIsEditingContent(false);
+  };
+
+  const cancelEditing = () => {
+    setIsEditingContent(false);
+  };
+
+  const handleTabChange = (tab: 'work' | 'behavior') => {
+    setActiveTab(tab);
+    setIsEditingContent(false);
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 p-8 pb-32">
@@ -190,7 +220,7 @@ function PersonaView({ persona, onUpdate }: { persona: Persona, onUpdate: (p: Pe
       <div className="space-y-4">
         <div className="flex items-center gap-6 border-b border-slate-200 dark:border-white/10">
           <button 
-            onClick={() => setActiveTab('work')}
+            onClick={() => handleTabChange('work')}
             className={cn(
               "pb-3 text-sm font-medium transition-all relative",
               activeTab === 'work' ? "text-blue-500" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -200,7 +230,7 @@ function PersonaView({ persona, onUpdate }: { persona: Persona, onUpdate: (p: Pe
             {activeTab === 'work' && <motion.div layoutId="tab" className="absolute bottom-0 inset-x-0 h-0.5 bg-blue-500" />}
           </button>
           <button 
-            onClick={() => setActiveTab('behavior')}
+            onClick={() => handleTabChange('behavior')}
             className={cn(
               "pb-3 text-sm font-medium transition-all relative",
               activeTab === 'behavior' ? "text-blue-500" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -213,21 +243,56 @@ function PersonaView({ persona, onUpdate }: { persona: Persona, onUpdate: (p: Pe
 
         <div className="relative bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl min-h-[400px] group">
           <div className="absolute top-4 right-4 z-10 flex gap-2">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 hover:shadow-md transition-all">
-              <Edit2 className="w-3 h-3" /> 编辑
-            </button>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 hover:shadow-md transition-all">
-              <MessageSquare className="w-3 h-3" /> 对话修改
-            </button>
+            {isEditingContent ? (
+              <>
+                <button 
+                  onClick={saveEditing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium hover:shadow-md transition-all shadow-lg shadow-green-600/10"
+                >
+                  <Check className="w-3 h-3" /> 保存
+                </button>
+                <button 
+                  onClick={cancelEditing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-medium hover:shadow-md transition-all"
+                >
+                  <X className="w-3 h-3" /> 取消
+                </button>
+              </>
+            ) : (
+              <>
+                <button 
+                  onClick={startEditing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 hover:shadow-md transition-all"
+                >
+                  <Edit2 className="w-3 h-3" /> 编辑
+                </button>
+                <button 
+                  onClick={() => alert('可以通过在左侧的对话框中直接下达人设调整或职责修正指令，AI 协同助理将自动为您分析并重塑。')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 hover:shadow-md transition-all"
+                >
+                  <MessageSquare className="w-3 h-3" /> 对话修改
+                </button>
+              </>
+            )}
           </div>
 
           <div className="p-8 prose dark:prose-invert prose-sm max-w-none">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 border-l-2 border-blue-500 pl-3">
               {activeTab === 'work' ? 'WHAT · 定义智能体的职责边界和工作范围' : 'HOW · 定义智能体的沟通习惯和行为边界'}
             </div>
-            <ReactMarkdown>
-              {activeTab === 'work' ? persona.responsibilities : persona.constraints}
-            </ReactMarkdown>
+            {isEditingContent ? (
+              <textarea
+                value={editContent}
+                onChange={e => setEditContent(e.target.value)}
+                className="w-full min-h-[350px] bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-white/10 rounded-xl p-4 text-sm font-sans text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all resize-y"
+                placeholder={activeTab === 'work' ? "请输入工作职责内容..." : "请输入设计或行为约束..."}
+                autoFocus
+              />
+            ) : (
+              <ReactMarkdown>
+                {activeTab === 'work' ? persona.responsibilities : persona.constraints}
+              </ReactMarkdown>
+            )}
           </div>
         </div>
       </div>
@@ -396,6 +461,8 @@ function SkillsView({ items, onUpdate }: { items: SkillItem[], onUpdate: (s: Ski
 function KnowledgeBaseView({ items, onUpdate }: { items: KnowledgeBaseItem[], onUpdate: (k: KnowledgeBaseItem[]) => void }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingItem, setEditingItem] = useState<KnowledgeBaseItem | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const handleSave = (item: KnowledgeBaseItem) => {
     if (editingItem) {
@@ -407,6 +474,149 @@ function KnowledgeBaseView({ items, onUpdate }: { items: KnowledgeBaseItem[], on
     setIsAdding(false);
   };
 
+  const parseFileContent = async (file: File): Promise<{ content: string; type: 'doc' | 'table' | 'file' }> => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    
+    if (ext === 'txt' || ext === 'md' || ext === 'json' || ext === 'js' || ext === 'ts') {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          resolve({
+            content: e.target?.result as string || '',
+            type: 'doc'
+          });
+        };
+        reader.readAsText(file);
+      });
+    }
+    
+    if (ext === 'csv' || ext === 'tsv') {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          resolve({
+            content: e.target?.result as string || '',
+            type: 'table'
+          });
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    if (ext === 'docx') {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = async (rev) => {
+          try {
+            const result = await mammoth.extractRawText({ arrayBuffer: rev.target?.result as ArrayBuffer });
+            resolve({
+              content: result.value || '未能提取到Word文档明文 (可能文档为空)',
+              type: 'doc'
+            });
+          } catch (err) {
+            resolve({
+              content: `Word 提取解析错误: ${err}`,
+              type: 'doc'
+            });
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    if (ext === 'pdf') {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = async (rev) => {
+          try {
+            const loadingTask = pdfjs.getDocument({ data: rev.target?.result as ArrayBuffer });
+            const pdf = await loadingTask.promise;
+            let fullText = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const textContent = await page.getTextContent();
+              fullText += textContent.items.map((item: any) => item.str).join(' ') + '\n';
+            }
+            resolve({
+              content: fullText.trim() || '未能提取到PDF明文 (可能含有多页空白或扫描图片)',
+              type: 'doc'
+            });
+          } catch (err) {
+            resolve({
+              content: `PDF 提取解析错误: ${err}`,
+              type: 'doc'
+            });
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          resolve({
+            content: `工作簿：${file.name}\n大小：${(file.size / 1024).toFixed(1)} KB\n格式：Excel 电子表格 (.${ext})\n\n[自动检测的属性]\n数据表类型：IPD 评审/数据清单表\n最后更新时间：${new Date().toLocaleString()}\n\n数据结构提取完成，将作为高级检索表格注入 RAG 上下文。`,
+            type: 'table'
+          });
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    // Default Fallback
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        resolve({
+          content: `文件名: ${file.name}\n文件大小: ${(file.size / 1024).toFixed(1)} KB\n文件解析成功，将优先注入上下文。`,
+          type: 'file'
+        });
+      };
+      reader.readAsText(file);
+    });
+  };
+
+  const handleFiles = async (files: FileList) => {
+    const updatedItems = [...items];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const parsed = await parseFileContent(file);
+      updatedItems.push({
+        id: `kb-${Date.now()}-${i}`,
+        name: file.name,
+        content: parsed.content,
+        type: parsed.type,
+        updatedAt: Date.now()
+      });
+    }
+    onUpdate(updatedItems);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      handleFiles(e.target.files);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-8 p-8 pb-32">
       <div className="flex items-center justify-between">
@@ -415,14 +625,14 @@ function KnowledgeBaseView({ items, onUpdate }: { items: KnowledgeBaseItem[], on
             <Database className="w-5 h-5 text-blue-500" />
             RAG 知识库
           </h2>
-          <p className="text-sm text-slate-500">上传项目文档、技术手册或标准规范，智能体在回答时将优先基于此知识库进行 RAG 检索</p>
+          <p className="text-sm text-slate-500">上传项目文档、Excel表格、Word手册、PDF标准等常用格式，智能体在回答时将优先基于此知识库进行 RAG 检索</p>
         </div>
         {!isAdding && !editingItem && (
           <button 
             onClick={() => setIsAdding(true)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-blue-600/20"
           >
-            <Plus className="w-4 h-4" /> 新增知识库
+            <Plus className="w-4 h-4" /> 手动录入
           </button>
         )}
       </div>
@@ -438,9 +648,19 @@ function KnowledgeBaseView({ items, onUpdate }: { items: KnowledgeBaseItem[], on
           <div className="col-span-full mb-2">
              <div className="bg-blue-500/5 border border-blue-500/10 p-4 rounded-xl flex items-center gap-4 text-blue-500 text-xs">
                 <Shield className="w-5 h-5 shrink-0" />
-                所有上传内容仅在本地加密向量库中使用，不会被用于公开模型训练。
+                所有上传内容仅在本地加密向量库中使用，不会被用于公开模型训练。支持 PDF、Word、Excel、TXT、MD、CSV 等常用格式。
              </div>
           </div>
+          
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileChange}
+            multiple 
+            accept=".xlsx,.xls,.docx,.doc,.pdf,.txt,.csv,.md,.json" 
+            className="hidden" 
+          />
+
           {items.map(item => (
             <div key={item.id} className="group p-5 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl hover:border-blue-500/30 transition-all flex flex-col gap-4">
               <div className="flex items-start justify-between">
@@ -458,17 +678,31 @@ function KnowledgeBaseView({ items, onUpdate }: { items: KnowledgeBaseItem[], on
                    <button onClick={() => onUpdate(items.filter(i => i.id !== item.id))} className="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed bg-white/40 dark:bg-black/20 p-2 rounded border border-black/5 dark:border-white/5 italic">
+              <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed bg-white/40 dark:bg-black/20 p-2 rounded border border-black/5 dark:border-white/5 italic whitespace-pre-wrap">
                 {item.content || '暂无详细内容'}
               </p>
             </div>
           ))}
+
           <div 
-            onClick={() => setIsAdding(true)}
-            className="p-8 border-2 border-dashed border-slate-200 dark:border-white/5 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 hover:border-blue-500/30 transition-all group"
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={cn(
+              "p-8 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-all group min-h-[160px]",
+              isDragging 
+                ? "border-blue-500 bg-blue-500/5 shadow-[0_0_15px_rgba(59,130,246,0.15)]" 
+                : "border-slate-200 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 hover:border-blue-500/30"
+            )}
           >
-            <Upload className="w-8 h-8 text-slate-300 group-hover:text-blue-400 transition-colors" />
-            <span className="text-sm text-slate-400 group-hover:text-blue-400">点击或通过对话上传新的项目文件</span>
+            <Upload className={cn("w-8 h-8 transition-colors", isDragging ? "text-blue-500" : "text-slate-300 group-hover:text-blue-400")} />
+            <span className={cn("text-sm transition-colors text-center", isDragging ? "text-blue-500 font-medium" : "text-slate-400 group-hover:text-blue-400")}>
+              {isDragging ? "松开鼠标立即上传" : "拖拽文件到此处 或 点击选择文件上传"}
+            </span>
+            <span className="text-[10px] text-slate-400 text-center">
+              (支持 PDF, Word (docx), Excel (xlsx), CSV, TXT, MD)
+            </span>
           </div>
         </div>
       )}

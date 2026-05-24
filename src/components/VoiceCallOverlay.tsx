@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { PhoneOff, Mic, MicOff, Volume2, Bot } from 'lucide-react';
 import { VoiceModule } from '../lib/voice';
 import { cn } from '../lib/utils';
-import { Message, MemoryVault } from '../types';
+import { Message, MemoryVault, ExecutionLog } from '../types';
 import { sendMessageStream } from '../services/gemini';
 
 interface VoiceCallOverlayProps {
@@ -11,9 +11,11 @@ interface VoiceCallOverlayProps {
   onClose: () => void;
   memory: MemoryVault;
   onNewMessage: (msg: Message) => void;
+  onLogUpdate?: (log: ExecutionLog) => void;
+  onMemoryUpdate?: (newMd: string) => void;
 }
 
-export default function VoiceCallOverlay({ isOpen, onClose, memory, onNewMessage }: VoiceCallOverlayProps) {
+export default function VoiceCallOverlay({ isOpen, onClose, memory, onNewMessage, onLogUpdate, onMemoryUpdate }: VoiceCallOverlayProps) {
   const [status, setStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
   const [transcript, setTranscript] = useState('');
   const recognitionRef = useRef<any>(null);
@@ -78,7 +80,17 @@ export default function VoiceCallOverlay({ isOpen, onClose, memory, onNewMessage
     onNewMessage(userMessage);
 
     try {
-      const stream = sendMessageStream(text, memory.shortTerm, memory);
+      const stream = sendMessageStream(
+        text, 
+        memory.shortTerm, 
+        memory, 
+        undefined, 
+        (agent) => {
+          if (isMounted.current) setTranscript(agent);
+        },
+        (log) => onLogUpdate?.(log),
+        (newMd) => onMemoryUpdate?.(newMd)
+      );
       let fullResponse = '';
       
       for await (const chunk of stream) {

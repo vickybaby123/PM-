@@ -10,18 +10,18 @@ import { sendMessageStream, extractCorrectionRules } from './services/gemini';
 const INITIAL_MEMORY: MemoryVault = {
   shortTerm: [],
   memoryMd: `## User Preferences
-- 偏好简洁的技术性回复
-- 关注 IPD 流程合规性
+- 偏好简洁的技术性回复 (2026-05-24 10:12:05)
+- 关注 IPD 流程合规性 (2026-05-24 10:15:30)
 
 ## Project Milestones
-- TR1: 已完成
-- TR2: 进行中 (预期 05/15)
+- TR1: 已完成 (2026-05-20 09:00:00)
+- TR2: 进行中 (预期 05/15) (2026-05-22 14:30:11)
 
 ## Resolution History
-- 解决了关于 HA-9001 的物料二供冲突
+- 解决了关于 HA-9001 的物料二供冲突 (2026-05-23 16:45:00)
 
 ## Global Rules
-- 对于所有 TR3 节点必查噪声测试报告
+- 对于所有 TR3 节点必查噪声测试报告 (2026-05-24 11:20:00)
 `,
   longTerm: {
     projectProfile: {
@@ -184,22 +184,81 @@ export default function App() {
     setActiveAgent(null);
     setCalledAgents(new Set());
 
+    const thread_id = memory.longTerm.projectProfile.name || "default_thread";
+    let ws: WebSocket | null = null;
+    try {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = window.location.host;
+      const wsUrl = `${wsProtocol}//${wsHost}/ws/logs/${encodeURIComponent(thread_id)}`;
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'log_entry') {
+            const enrichedLog = {
+              session_id: payload.session_id,
+              timestamp: payload.timestamp,
+              agent_name: payload.agent_name,
+              action: payload.action,
+              status: payload.status,
+              execution_time_ms: payload.execution_time_ms,
+              token_usage: { prompt: 100, completion: 50 },
+              affected_files: payload.files || [],
+              details: {
+                thought: payload.thought,
+                component: payload.component,
+                files: payload.files,
+                result_outcome: payload.result_outcome
+              }
+            };
+            setCalledAgents(prev => new Set(prev).add(payload.agent_name));
+            setMemory(prev => {
+              const currentLogs = prev.longTerm.logs || [];
+              const isDuplicate = currentLogs.some(
+                l => l.timestamp === payload.timestamp && l.agent_name === payload.agent_name
+              );
+              if (isDuplicate) return prev;
+              const nextLogs = [...currentLogs, enrichedLog].slice(-30);
+              return {
+                ...prev,
+                longTerm: {
+                  ...prev.longTerm,
+                  logs: nextLogs
+                }
+              };
+            });
+          }
+        } catch (wsErr) {
+          console.error('[WebSocket Parser Error]', wsErr);
+        }
+      };
+    } catch (wsConnErr) {
+      console.warn('[WebSocket Connection Error]', wsConnErr);
+    }
+
     try {
       const stream = sendMessageStream(
         content, 
-        memory.shortTerm, 
+        newMessages, 
         memory, 
         currentAttachments, 
         (agent) => setActiveAgent(agent),
         (log) => {
           setCalledAgents(prev => new Set(prev).add(log.agent_name));
-          setMemory(prev => ({
-            ...prev,
-            longTerm: {
-              ...prev.longTerm,
-              logs: [...(prev.longTerm.logs || []), log]
-            }
-          }));
+          setMemory(prev => {
+            const currentLogs = prev.longTerm.logs || [];
+            const isDuplicate = currentLogs.some(
+              l => l.timestamp === log.timestamp && l.agent_name === log.agent_name
+            );
+            if (isDuplicate) return prev;
+            return {
+              ...prev,
+              longTerm: {
+                ...prev.longTerm,
+                logs: [...currentLogs, log].slice(-30)
+              }
+            };
+          });
         },
         (newMd) => setMemory(prev => ({
           ...prev,
@@ -243,6 +302,9 @@ export default function App() {
       }));
     } finally {
       setIsStreaming(false);
+      if (ws) {
+        ws.close();
+      }
     }
   }, [inputValue, attachments, memory]);
 
@@ -267,10 +329,9 @@ export default function App() {
   };
 
   const clearSession = () => {
-    if (confirm('确定要清除当前对话历史吗？（保留项目画像和规则库）')) {
-      setMemory(prev => ({ ...prev, shortTerm: [] }));
-      setCalledAgents(new Set());
-    }
+    // Bypass native window.confirm which is blocked in iframe previews
+    setMemory(prev => ({ ...prev, shortTerm: [] }));
+    setCalledAgents(new Set());
   };
 
   return (
@@ -360,6 +421,19 @@ export default function App() {
         onClose={() => setIsCallModeOpen(false)}
         memory={memory}
         onNewMessage={handleNewExternalMessage}
+        onLogUpdate={(log) => {
+          setMemory(prev => ({
+            ...prev,
+            longTerm: {
+              ...prev.longTerm,
+              logs: [...(prev.longTerm.logs || []), log].slice(-30)
+            }
+          }));
+        }}
+        onMemoryUpdate={(newMd) => setMemory(prev => ({
+          ...prev,
+          memoryMd: newMd
+        }))}
       />
     </div>
   );

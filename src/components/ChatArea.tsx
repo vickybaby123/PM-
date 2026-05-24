@@ -118,6 +118,9 @@ export default function ChatArea({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
+      if ((e.nativeEvent as any).isComposing) {
+        return;
+      }
       e.preventDefault();
       onSendMessage();
     }
